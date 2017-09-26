@@ -13,35 +13,55 @@ class TreeNode: NSObject {
 	var name = ""
 	var isOpen = false
 	var subNodes = [TreeNode]()
-	var level = 0
-	var descendantNodes: [TreeNode]{
-		return descendantNodesOf(ancestor: self)
+	var levelString = ""
+	
+	var level: Int{
+		return levelString.components(separatedBy: ".").count
+	}
+	var isLeaf: Bool{
+		return subNodes.isEmpty
 	}
 	
-	// 计算所有的后代节点
-	private func descendantNodesOf(ancestor: TreeNode) -> [TreeNode]{
-		var nodes = [TreeNode]()
-		nodes.append(contentsOf: ancestor.subNodes)
-		for node in ancestor.subNodes {
-			nodes.append(contentsOf: descendantNodesOf(ancestor: node))
-		}
-		return nodes
+	override var description: String{
+		return "levelString: \(levelString) name: \(name)"
 	}
-	
+}
+
+
+extension TreeNode{	
 	override func setValue(_ value: Any?, forUndefinedKey key: String) {
 		if key == "subs", let subs = value as? [[String: Any]]{
-			for dict in subs {
-				let tree = TreeNode.modelWithDictionary(dict, parent: level)
+			for i in 0..<subs.count {
+				let tree = TreeNode.modelWithDictionary(subs[i], levelString: i,parent: levelString)
 				subNodes.append(tree)
 			}
 		}
 	}
 	
-	public static func modelWithDictionary(_ dict: [String: Any], parent level: Int) -> TreeNode{
+	public static func modelWithDictionary(_ dict: [String: Any], levelString index: Int, parent levelString: String?) -> TreeNode{
 		let model = TreeNode()
-		model.level = level + 1
+		model.levelString = levelString != nil ? (levelString! + ".\(index + 1)") : "\(index + 1)"
 		model.setValuesForKeys(dict)
 		return model
+	}
+}
+
+
+extension TreeNode{
+	var needsDisplayNodes: [TreeNode]{
+		return needsDisplayNodesOf(ancestor: self)
+	}
+	
+	// 应该显示的
+	private func needsDisplayNodesOf(ancestor: TreeNode) -> [TreeNode]{
+		var nodes = [TreeNode]()
+		for node in ancestor.subNodes {
+			nodes.append(node)
+			if node.isOpen {
+				nodes.append(contentsOf: needsDisplayNodesOf(ancestor: node))
+			}
+		}
+		return nodes.sorted{ $0.levelString < $1.levelString }
 	}
 }
 
@@ -51,11 +71,11 @@ extension TreeNode{
 		var trees = [TreeNode]()
 		do{
 			let data = try Data(contentsOf: Bundle.main.url(forResource: "tree.json", withExtension: nil)!)
-			guard let json = try JSONSerialization.jsonObject(with: data, options: .mutableLeaves) as? [[String: Any]] else{
+			guard let jsonArray = try JSONSerialization.jsonObject(with: data, options: .mutableLeaves) as? [[String: Any]] else{
 				return trees
 			}
-			for dict in json {
-				let tree = TreeNode.modelWithDictionary(dict, parent: 0)
+			for i in 0..<jsonArray.count{
+				let tree = TreeNode.modelWithDictionary(jsonArray[i], levelString: i, parent: nil)
 				trees.append(tree)
 			}
 		}catch{
