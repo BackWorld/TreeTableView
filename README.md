@@ -1,8 +1,9 @@
 # TreeTableView
-A tree structure view demo based on UITableView.
+> A tree structure view demo based on UITableView.
+
 > 本例提供了一种“最简单”的利用UITableView实现树状结构的方法和思路，适用于OC和Swift。
 
-![最终效果](http://upload-images.jianshu.io/upload_images/1334681-154215d6e145a63c.gif?imageMogr2/auto-orient/strip)
+![最终效果](http://upload-images.jianshu.io/upload_images/1334681-342f5ffbe0dfa3b0.gif?imageMogr2/auto-orient/strip)
 
 ### 思路
 - 定义数据模型TreeNode，里边有控制展开/关闭的属性`isOpen`，以及它的儿子节点`subNodes`；
@@ -38,9 +39,16 @@ class TreeNode: NSObject {
 	var name = ""
 	var isOpen = false
 	var subNodes = [TreeNode]()
-	var level = 0
-	var descendantNodes: [TreeNode]{
-		// TODO
+	var levelString = ""
+	
+	var level: Int{
+		return levelString.components(separatedBy: ".").count
+	}
+	var needsDisplayNodes: [TreeNode]{
+		return needsDisplayNodesOf(ancestor: self)
+	}
+	var isLeaf: Bool{
+		return subNodes.isEmpty
 	}
 }
 ```
@@ -51,28 +59,27 @@ func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
 	tableView.deselectRow(at: indexPath, animated: true)
 	
 	let node = dataSource[indexPath.row]
-	let subs = node.subNodes
 //1. 点击叶子节点，不再展开/插入
-	if subs.isEmpty {
+	if node.isLeaf {
 		return
 	}
 	
 	node.isOpen = !node.isOpen
+	let nodes = node.needsDisplayNodes
 	let insertIndex = dataSource.index(of: node)! + 1
-	if node.isOpen {
 //2. 插入subNodes - 展开
-		dataSource.insert(contentsOf: subs, at: insertIndex)
-		tableView.insertRows(at: subs.map{
+	if node.isOpen {
+		dataSource.insert(contentsOf: nodes, at: insertIndex)
+		tableView.insertRows(at: nodes.map{
 			IndexPath(row: dataSource.index(of: $0)!, section: 0)
 		}, with: .top)
 	}
-	else{
 //3. 移除所有的subNodes - 收起
-		for subNode in node.descendantNodes {
+	else{
+		for subNode in nodes {
 			guard let index = dataSource.index(of: subNode) else {
 				continue
 			}
-			subNode.isOpen = false
 			dataSource.remove(at: index)
 			tableView.deleteRows(at: 
 				[IndexPath(row: index, section: 0)]
@@ -87,12 +94,11 @@ func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
 ```
 func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
 	let node = dataSource[indexPath.row]
-	let subs = node.subNodes
-	let flagText = !subs.isEmpty ? (node.isOpen ? "-" : "+") : ""
+	let flagText = !node.isLeaf ? (node.isOpen ? "-" : "+") : ""
 	
 	var cell: UITableViewCell!
-	if subs.isEmpty {
 //1. 叶子节点cell
+	if node.isLeaf {
 		cell = tableView.dequeueReusableCell(withIdentifier: "TreeLeafCell", for: indexPath) as! TreeLeafCell
 	}
 	else{
@@ -100,59 +106,67 @@ func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> U
 		cell = tableView.dequeueReusableCell(withIdentifier: "TreeNodeCell", for: indexPath) as! TreeNodeCell
 	}
 	
-	cell.textLabel?.text = String(repeating: "    ", count: node.level) + "\(flagText)  " + node.name
+	cell.textLabel?.text = String(repeating: "    ", 
+								  count: (node.level > 1 ? node.level : 0)) 
+		+ "\(flagText)  " + node.name
 	
 	return cell
 }
 ```
-- **TreeNode数据模型**
+- **TreeNode扩展初始化方法**
 ```
-class TreeNode: NSObject {
-// 所有的后代节点
-	var descendantNodes: [TreeNode]{
-		return descendantNodesOf(ancestor: self)
-	}
-	
-	// 计算所有的后代节点
-	private func descendantNodesOf(ancestor: TreeNode) -> [TreeNode]{
-		var nodes = [TreeNode]()
-		nodes.append(contentsOf: ancestor.subNodes)
-		for node in ancestor.subNodes {
-			nodes.append(contentsOf: descendantNodesOf(ancestor: node))
-		}
-		return nodes
-	}
-	
+extension TreeNode{	
 	override func setValue(_ value: Any?, forUndefinedKey key: String) {
 		if key == "subs", let subs = value as? [[String: Any]]{
-			for dict in subs {
-				let tree = TreeNode.modelWithDictionary(dict, parent: level)
+			for i in 0..<subs.count {
+				let tree = TreeNode.modelWithDictionary(subs[i], levelString: i,parent: levelString)
 				subNodes.append(tree)
 			}
 		}
 	}
 	
-	public static func modelWithDictionary(_ dict: [String: Any], parent level: Int) -> TreeNode{
+	public static func modelWithDictionary(_ dict: [String: Any], levelString index: Int, parent levelString: String?) -> TreeNode{
 		let model = TreeNode()
-		model.level = level + 1
+		model.levelString = levelString != nil ? (levelString! + ".\(index + 1)") : "\(index + 1)"
 		model.setValuesForKeys(dict)
 		return model
 	}
 }
 ```
 
-- **模拟JSON数据解析逻辑**
+- **TreeNode扩展计算当前应该显示的subNodes方法**
+```
+extension TreeNode{
+	var needsDisplayNodes: [TreeNode]{
+		return needsDisplayNodesOf(ancestor: self)
+	}
+	
+	// 应该显示的
+	private func needsDisplayNodesOf(ancestor: TreeNode) -> [TreeNode]{
+		var nodes = [TreeNode]()
+		for node in ancestor.subNodes {
+			nodes.append(node)
+			if node.isOpen {
+				nodes.append(contentsOf: needsDisplayNodesOf(ancestor: node))
+			}
+		}
+		return nodes.sorted{ $0.levelString < $1.levelString }
+	}
+}
+```
+
+- **TreeNode扩展测试JSON数据解析方法**
 ```
 extension TreeNode{
 	public static func mockData() -> [TreeNode]{
 		var trees = [TreeNode]()
 		do{
 			let data = try Data(contentsOf: Bundle.main.url(forResource: "tree.json", withExtension: nil)!)
-			guard let json = try JSONSerialization.jsonObject(with: data, options: .mutableLeaves) as? [[String: Any]] else{
+			guard let jsonArray = try JSONSerialization.jsonObject(with: data, options: .mutableLeaves) as? [[String: Any]] else{
 				return trees
 			}
-			for dict in json {
-				let tree = TreeNode.modelWithDictionary(dict, parent: 0)
+			for i in 0..<jsonArray.count{
+				let tree = TreeNode.modelWithDictionary(jsonArray[i], levelString: i, parent: nil)
 				trees.append(tree)
 			}
 		}catch{
@@ -166,9 +180,10 @@ extension TreeNode{
 - **优点**
 > 思路清晰，逻辑简单，代码实现容易；
 代码执行效率高；
+实现了上次卷展状态记忆；
+
 - **缺点**
-> 暂不支持所有节点上次卷展状态的重现；
-代码对Data Model的依赖性较强；
+> 代码对Data Model的依赖性较强；
 没有实现封装；
 
 ### 简书
